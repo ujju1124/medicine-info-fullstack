@@ -67,6 +67,7 @@ async function fetchMedicineInfo(medicineName) {
             const response = await axios.get("https://api.fda.gov/drug/label.json", {
                 params: { search: searchTerm, api_key: apiKey, limit: 1 }
             });
+            console.log('FDA API raw response:', response.data);
             return response.data.results && response.data.results.length > 0 ? response.data.results[0] : null;
         };
 
@@ -88,6 +89,7 @@ async function fetchMedicineInfo(medicineName) {
     }
 }
 
+console.log('OPENFDA_API_KEY:', process.env.OPENFDA_API_KEY);
 
 // Update the POST /api/extract-medicine-name endpoint
 app.post("/api/extract-medicine-name", upload.single("image"), async (req, res) => {
@@ -119,6 +121,7 @@ app.get("/", (req, res) => {
 
 app.get("/api/suggestions", async (req, res, next) => {
     const { name } = req.query;
+    console.log('Suggestion query:', name);
 
     if (!name) {
         return res.json({ suggestions: [] });
@@ -140,6 +143,7 @@ app.get("/api/suggestions", async (req, res, next) => {
                   .map((medicine) => medicine.openfda.brand_name[0])
             : [];
 
+        console.log('Suggestions returned:', suggestions);
         res.json({ suggestions });
     } catch (error) {
         console.error("FDA API Error:", error.response?.data || error.message);
@@ -169,6 +173,48 @@ app.get("/api/medicine-info", async (req, res, next) => {
     }
 });
 
+app.post("/api/summarize", express.json(), async (req, res) => {
+    let { text } = req.body;
+    if (!text) {
+        return res.status(400).json({ error: "No text provided" });
+    }
+    if (Array.isArray(text)) {
+        text = text.join(' ');
+    }
+    text = String(text).trim();
+    if (!text || text.length < 50) {
+        return res.json({ summary: text });
+    }
+
+    // Split text into chunks of 900 characters with 100 char overlap
+    const chunkSize = 900;
+    const overlap = 100;
+    let summaries = [];
+    for (let i = 0; i < text.length; i += (chunkSize - overlap)) {
+        const chunk = text.slice(i, i + chunkSize);
+        try {
+            const hfResponse = await axios.post(
+                "https://api-inference.huggingface.co/models/google/pegasus-xsum",
+                { inputs: chunk },
+                {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${process.env.HF_API_KEY}`
+                    }
+                }
+            );
+            const summary = hfResponse.data[0]?.summary_text || chunk;
+            summaries.push(summary);
+        } catch (error) {
+            console.error("Hugging Face API error:", error.response?.data || error.message);
+            summaries.push(chunk); // fallback: use original chunk
+        }
+    }
+    // Join all summaries into one readable summary
+    const finalSummary = summaries.join(' ');
+    res.json({ summary: finalSummary });
+});
+
 // **Apply error handling middleware**
 app.use((err, req, res, next) => {
     console.error("Error:", err);
@@ -177,3 +223,11 @@ app.use((err, req, res, next) => {
 
 // **Export the app for Vercel**
 module.exports = app;
+
+// Start server locally if not running on Vercel
+if (require.main === module) {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+    });
+}
