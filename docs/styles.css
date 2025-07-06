@@ -669,7 +669,9 @@
   }
   
   .upload-button:hover {
-    background-color: hsl(var(--secondary) / 0.8);
+    background-color: #2563eb;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.15);
   }
   
   .upload-button i {

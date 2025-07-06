@@ -38,6 +38,66 @@ async function processImage(buffer) {
         await worker.terminate();
     }
 }
+
+// Replace processImage with Hugging Face OCR
+async function processImageWithHuggingFace(buffer) {
+  const base64Image = buffer.toString('base64');
+  try {
+    const response = await axios.post(
+      'https://api-inference.huggingface.co/models/microsoft/trocr-base-printed',
+      { inputs: `data:image/jpeg;base64,${base64Image}` },
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.HF_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000
+      }
+    );
+    if (response.data && response.data.generated_text) {
+      return response.data.generated_text;
+    } else if (Array.isArray(response.data) && response.data[0]?.generated_text) {
+      return response.data[0].generated_text;
+    } else {
+      throw new Error('No text extracted from image (Hugging Face)');
+    }
+  } catch (err) {
+    console.error('Hugging Face OCR error:', err.response?.data || err.message);
+    throw new Error('Failed to extract text from image using Hugging Face.');
+  }
+}
+
+// Replace OCR logic with OCR.Space API
+async function processImageWithOCRSpace(buffer) {
+  const base64Image = buffer.toString('base64');
+  try {
+    const response = await axios.post(
+      'https://api.ocr.space/parse/image',
+      new URLSearchParams({
+        base64Image: `data:image/jpeg;base64,${base64Image}`,
+        language: 'eng',
+        isOverlayRequired: 'false'
+      }),
+      {
+        headers: {
+          'apikey': 'fef07ab03488957',
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 30000
+      }
+    );
+    const parsed = response.data;
+    if (parsed && parsed.ParsedResults && parsed.ParsedResults[0]?.ParsedText) {
+      return parsed.ParsedResults[0].ParsedText;
+    } else {
+      throw new Error('No text extracted from image');
+    }
+  } catch (err) {
+    console.error('OCR.Space error:', err.response?.data || err.message);
+    throw new Error('Failed to extract text from image using OCR.Space.');
+  }
+}
+
 // **Extracts the most likely medicine name from OCR text**
 function extractMostLikelyMedicineName(text) {
     const words = text
@@ -91,28 +151,38 @@ async function fetchMedicineInfo(medicineName) {
 
 console.log('OPENFDA_API_KEY:', process.env.OPENFDA_API_KEY);
 
-// Update the POST /api/extract-medicine-name endpoint
+// Update the POST /api/extract-medicine-name endpoint to use OCR.Space, fallback to Hugging Face
 app.post("/api/extract-medicine-name", upload.single("image"), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: "No image file provided" });
-    }
-
+  if (!req.file) {
+    return res.status(400).json({ error: "No image file provided" });
+  }
+  let text = '';
+  try {
+    // Try OCR.Space first
     try {
-        const text = await processImage(req.file.buffer);
-        console.log("Extracted text:", text);
-
-        const medicineName = extractMostLikelyMedicineName(text);
-        if (!medicineName) {
-            return res.status(400).json({ error: "Could not detect a medicine name" });
-        }
-
-        console.log("Detected Medicine Name:", medicineName);
-        res.json({ medicineName }); // Return only the extracted name
-    } catch (error) {
-        console.error("Error processing image:", error);
-        res.status(500).json({ error: error.message || "Failed to process the image" });
+      text = await processImageWithOCRSpace(req.file.buffer);
+      console.log("Extracted text (OCR.Space):", text);
+    } catch (err) {
+      console.warn("OCR.Space failed, trying Hugging Face OCR...", err.message);
+      // Fallback to Hugging Face
+      text = await processImageWithHuggingFace(req.file.buffer);
+      console.log("Extracted text (Hugging Face):", text);
     }
+    if (!text || !text.trim()) {
+      throw new Error('No text extracted from image by any OCR provider.');
+    }
+    const medicineName = extractMostLikelyMedicineName(text);
+    if (medicineName) {
+      res.json({ medicineName, text });
+    } else {
+      res.json({ text });
+    }
+  } catch (error) {
+    console.error("Error processing image (OCR fallback):", error);
+    res.status(500).json({ error: error.message || "Failed to process the image with OCR providers" });
+  }
 });
+
 // **Existing API Routes (No Changes)**
 
 app.get("/", (req, res) => {
@@ -152,25 +222,51 @@ app.get("/api/suggestions", async (req, res, next) => {
 });
 
 app.get("/api/medicine-info", async (req, res, next) => {
-    const { name } = req.query;
-
-    if (!name) {
-        return res.status(400).json({ error: "Medicine name is required" });
+  const { name } = req.query;
+  if (!name) {
+    return res.status(400).json({ error: "Medicine name is required" });
+  }
+  try {
+    // 1. Try OpenFDA
+    const medicineInfo = await fetchMedicineInfo(name);
+    if (medicineInfo) {
+      return res.json({ source: 'openfda', data: medicineInfo });
     }
-
+    // 2. Try Wikipedia
     try {
-        const medicineInfo = await fetchMedicineInfo(name);
-        if (!medicineInfo) {
-            return res.status(404).json({ error: "Medicine not found in database" });
-        }
-
-        // Wrap in array to match frontend expectations
-        res.json({ results: [medicineInfo] }); // <-- Add array wrapper
-
-    } catch (error) {
-        console.error("Error fetching medicine info:", error);
-        res.status(500).json({ error: "Failed to fetch medicine information" });
+      const wikiResp = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
+      if (wikiResp.data && wikiResp.data.extract) {
+        return res.json({ source: 'wikipedia', data: wikiResp.data });
+      }
+    } catch (err) {
+      // Wikipedia failed, continue to RxNorm
     }
+    // 3. Try RxNorm
+    try {
+      // Get RxCUI for the name
+      const rxCuiResp = await axios.get(`https://rxnav.nlm.nih.gov/REST/rxcui.json?name=${encodeURIComponent(name)}`);
+      const rxCui = rxCuiResp.data.idGroup?.rxnormId?.[0];
+      if (rxCui) {
+        // Get RxNorm properties
+        const propsResp = await axios.get(`https://rxnav.nlm.nih.gov/REST/rxcui/${rxCui}/properties.json`);
+        const props = propsResp.data.properties || {};
+        // Get synonyms (optional)
+        let synonyms = [];
+        try {
+          const synResp = await axios.get(`https://rxnav.nlm.nih.gov/REST/rxcui/${rxCui}/allProperties.json?prop=names`);
+          synonyms = synResp.data.propConceptGroup?.propConcept?.map(s => s.propValue) || [];
+        } catch {}
+        return res.json({ source: 'rxnorm', data: { ...props, synonyms } });
+      }
+    } catch (err) {
+      // RxNorm failed
+    }
+    // 4. All failed
+    return res.status(404).json({ error: "No information found for this medicine in OpenFDA, Wikipedia, or RxNorm." });
+  } catch (error) {
+    console.error("Error fetching medicine info (multi-source):", error);
+    res.status(500).json({ error: "Failed to fetch medicine information" });
+  }
 });
 
 app.post("/api/summarize", express.json(), async (req, res) => {
