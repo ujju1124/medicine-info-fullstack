@@ -1,2 +1,5 @@
-node_modules
 .env
+<<<<<<< HEAD
+=======
+api
+>>>>>>> 441abe0b98b0631fdeedb4cce4685fa5029af5f8
