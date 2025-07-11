@@ -22,6 +22,7 @@ app.use((req, res, next) => {
 // Serve static files from /public
 app.use(express.static(path.join(__dirname, "../public")));
 
+// Serve index.html at root
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/index.html"));
 });
