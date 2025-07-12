@@ -89,7 +89,7 @@ async function processImageWithOCRSpace(buffer) {
       }),
       {
         headers: {
-          'apikey': 'fef07ab03488957', // Consider moving this to process.env.OCRSPACE_API_KEY
+          'apikey': process.env.OCR_SPACE_API_KEY,
           'Content-Type': 'application/x-www-form-urlencoded'
         },
         timeout: 30000
