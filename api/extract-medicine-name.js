@@ -1,32 +1,26 @@
-const { processImageWithOCRSpace, processImageWithHuggingFace, extractMostLikelyMedicineName } = require("./processImage");
-const Busboy = require("busboy");
+const multiparty = require("multiparty");
+const { processImageWithOCRSpace, processImageWithHuggingFace, extractMostLikelyMedicineName } = require("./utils");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
   }
-  const busboy = new Busboy({ headers: req.headers, limits: { fileSize: 4 * 1024 * 1024 } });
-  let fileBuffer = Buffer.alloc(0);
-  let fileFound = false;
-  busboy.on("file", (fieldname, file) => {
-    if (fieldname === "image") {
-      fileFound = true;
-      file.on("data", (data) => {
-        fileBuffer = Buffer.concat([fileBuffer, data]);
-      });
+  // Parse multipart form
+  const form = new multiparty.Form();
+  form.parse(req, async (err, fields, files) => {
+    if (err || !files.image || !files.image[0]) {
+      res.status(400).json({ error: "No image file provided" });
+      return;
     }
-  });
-  busboy.on("finish", async () => {
-    if (!fileFound || !fileBuffer.length) {
-      return res.status(400).json({ error: "No image file provided" });
-    }
+    const file = files.image[0];
+    const buffer = require("fs").readFileSync(file.path);
     let text = '';
     try {
       try {
-        text = await processImageWithOCRSpace(fileBuffer, process.env.OCR_SPACE_API_KEY);
+        text = await processImageWithOCRSpace(buffer, process.env.OCR_SPACE_API_KEY);
       } catch (err) {
-        text = await processImageWithHuggingFace(fileBuffer, process.env.HF_API_KEY);
+        text = await processImageWithHuggingFace(buffer, process.env.HF_API_KEY);
       }
       if (!text || !text.trim()) {
         throw new Error('No text extracted from image by any OCR provider.');
@@ -41,5 +35,4 @@ module.exports = async (req, res) => {
       res.status(500).json({ error: error.message || "Failed to process the image with OCR providers" });
     }
   });
-  req.pipe(busboy);
 }; 

@@ -1,5 +1,5 @@
-const { fetchMedicineInfo } = require("./processImage");
 const axios = require("axios");
+const { fetchMedicineInfo } = require("./utils");
 
 module.exports = async (req, res) => {
   if (req.method !== "GET") {
@@ -8,19 +8,22 @@ module.exports = async (req, res) => {
   }
   const { name } = req.query;
   if (!name) {
-    return res.status(400).json({ error: "Medicine name is required" });
+    res.status(400).json({ error: "Medicine name is required" });
+    return;
   }
   try {
     // 1. Try OpenFDA
     const medicineInfo = await fetchMedicineInfo(name, process.env.OPENFDA_API_KEY);
     if (medicineInfo) {
-      return res.json({ source: 'openfda', data: medicineInfo });
+      res.json({ source: "openfda", data: medicineInfo });
+      return;
     }
     // 2. Try Wikipedia
     try {
       const wikiResp = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
       if (wikiResp.data && wikiResp.data.extract) {
-        return res.json({ source: 'wikipedia', data: wikiResp.data });
+        res.json({ source: "wikipedia", data: wikiResp.data });
+        return;
       }
     } catch (err) {}
     // 3. Try RxNorm
@@ -35,11 +38,12 @@ module.exports = async (req, res) => {
           const synResp = await axios.get(`https://rxnav.nlm.nih.gov/REST/rxcui/${rxCui}/allProperties.json?prop=names`);
           synonyms = synResp.data.propConceptGroup?.propConcept?.map(s => s.propValue) || [];
         } catch {}
-        return res.json({ source: 'rxnorm', data: { ...props, synonyms } });
+        res.json({ source: "rxnorm", data: { ...props, synonyms } });
+        return;
       }
     } catch (err) {}
     // 4. All failed
-    return res.status(404).json({ error: "No information found for this medicine in OpenFDA, Wikipedia, or RxNorm." });
+    res.status(404).json({ error: "No information found for this medicine in OpenFDA, Wikipedia, or RxNorm." });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch medicine information" });
   }

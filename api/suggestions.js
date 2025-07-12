@@ -7,7 +7,8 @@ module.exports = async (req, res) => {
   }
   const { name } = req.query;
   if (!name) {
-    return res.json({ suggestions: [] });
+    res.json({ suggestions: [] });
+    return;
   }
   try {
     const apiKey = process.env.OPENFDA_API_KEY;
@@ -24,6 +25,6 @@ module.exports = async (req, res) => {
       : [];
     res.json({ suggestions });
   } catch (error) {
-    res.status(500).json({ error: error.message || "FDA API Error" });
+    res.status(500).json({ error: error.message || "FDA API error" });
   }
 }; 
