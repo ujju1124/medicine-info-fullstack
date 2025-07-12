@@ -22,13 +22,14 @@ app.use((req, res, next) => {
     next();
 });
 
-// **Removed: express.static middleware and direct index.html serving.**
-// These are no longer needed as vercel.json will handle serving static files directly.
-// const path = require("path"); // No longer strictly needed if not serving static files
-// app.use(express.static(path.join(__dirname, "../public"))); // REMOVED
-// app.get("/", (req, res) => { // REMOVED - Vercel will serve public/index.html for the root route
-//     res.sendFile(path.join(__dirname, "../public/index.html"));
-// });
+// Serve static files for local development
+const path = require("path");
+app.use(express.static(path.join(__dirname, "../public")));
+
+// Serve index.html for the root route (local development)
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "../public/index.html"));
+});
 
 // **Extracts text from image using Tesseract.js (Currently bypassed by OCR.Space/HF)**
 async function processImage(buffer) {
@@ -191,15 +192,9 @@ app.post("/api/extract-medicine-name", upload.single("image"), async (req, res) 
     }
 });
 
-// **Updated: The root route is now just a placeholder for the API**
-// The actual root (/) of your Vercel deployment will serve public/index.html
-// due to the vercel.json configuration. This route will only be hit if
-// your vercel.json routes specifically target the root of the *API*.
-// Given your vercel.json, this route `/` in your API *won't* serve your
-// frontend homepage on Vercel's production environment.
-// It's primarily for local testing of the API.
-app.get("/", (req, res) => {
-    res.json({ message: "Welcome to Medisearch Backend! This is an API endpoint." });
+// API health check endpoint
+app.get("/api/health", (req, res) => {
+    res.json({ message: "Medisearch API is running!" });
 });
 
 
