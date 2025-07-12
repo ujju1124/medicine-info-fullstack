@@ -78,4 +78,24 @@ async function processImageWithOCRSpace(buffer, ocrSpaceApiKey) {
 
 function extractMostLikelyMedicineName(text) {
     const words = text
-        .replace(/[^\ 
+        .replace(/[^\w\s]/gi, '')
+        .split(' ')
+        .filter(word => word.length > 0);
+
+    const wordCounts = {};
+    words.forEach(word => {
+        wordCounts[word] = (wordCounts[word] || 0) + 1;
+    });
+
+    let mostFrequentWord = null;
+    let maxCount = 0;
+
+    for (const word in wordCounts) {
+        if (wordCounts[word] > maxCount) {
+            maxCount = wordCounts[word];
+            mostFrequentWord = word;
+        }
+    }
+
+    return mostFrequentWord;
+} 
