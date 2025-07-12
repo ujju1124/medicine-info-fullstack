@@ -1,4 +1,5 @@
 const multiparty = require("multiparty");
+const fs = require("fs");
 const { processImageWithOCRSpace, processImageWithHuggingFace, extractMostLikelyMedicineName } = require("./utils");
 
 module.exports = async (req, res) => {
@@ -6,7 +7,6 @@ module.exports = async (req, res) => {
     res.status(405).json({ error: "Method not allowed" });
     return;
   }
-  // Parse multipart form
   const form = new multiparty.Form();
   form.parse(req, async (err, fields, files) => {
     if (err || !files.image || !files.image[0]) {
@@ -14,7 +14,7 @@ module.exports = async (req, res) => {
       return;
     }
     const file = files.image[0];
-    const buffer = require("fs").readFileSync(file.path);
+    const buffer = fs.readFileSync(file.path);
     let text = '';
     try {
       try {
