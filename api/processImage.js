@@ -98,4 +98,11 @@ function extractMostLikelyMedicineName(text) {
     }
 
     return mostFrequentWord;
-} 
+}
+
+module.exports = {
+    processImage,
+    processImageWithHuggingFace,
+    processImageWithOCRSpace,
+    extractMostLikelyMedicineName
+}; 
